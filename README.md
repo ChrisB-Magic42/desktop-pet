@@ -29,7 +29,7 @@ into single frames first. This is done once, and it also makes the icon for the 
 launcher.
 
 ```bash
-git clone git@github.com:ChrisB-Magic42/desktop-pet.git ~/projects/desktop-pet
+git clone https://github.com/ChrisB-Magic42/desktop-pet.git ~/projects/desktop-pet
 ```
 
 ```bash
@@ -264,5 +264,7 @@ tests/                  unit tests
 
 ## About the pictures
 
-The Pikachu pictures belong to their owners. The sprite sheet is stored here for private use
-only. Keep this repository private, and do not publish it or share the sheet.
+Pikachu and the pictures of it belong to their owners. The sprite sheet is included here only
+so that the project runs. It is not licensed for reuse, and you should not use it outside
+your own computer. If you own the pictures and want the sheet removed, please open an issue
+on this repository.
