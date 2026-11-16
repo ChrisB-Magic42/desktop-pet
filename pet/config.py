@@ -1,0 +1,106 @@
+"""Pet settings and saved position: defaults, validation and the JSON files."""
+import json
+import os
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+CONFIG_DIR = Path(os.environ.get("DESKTOP_PET_CONFIG_DIR") or Path.home() / ".config" / "desktop-pet")
+CONFIG_FILE = CONFIG_DIR / "settings.json"
+STATE_FILE = CONFIG_DIR / "state.json"
+
+BEHAVIOURS = ("wander", "follow", "stay")
+NAME_MAX = 20
+LIMITS = {
+    "scale": (0.5, 4.0),
+    "speed": (20, 400),
+    "break_minutes": (0, 240),
+    "bounciness": (0, 95),
+    "gravity": (25, 300),
+}
+
+
+@dataclass
+class Settings:
+    name: str = "Pika"
+    scale: float = 1.5
+    speed: int = 90
+    behaviour: str = "wander"
+    sleepy: bool = True
+    always_on_top: bool = True
+    hide_fullscreen: bool = True
+    break_minutes: int = 50
+    bounciness: int = 70
+    gravity: int = 100
+    speech_bubbles: bool = True
+    autostart: bool = False
+
+
+def _number(value, key, default, cast):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    low, high = LIMITS[key]
+    return cast(min(max(value, low), high))
+
+
+def _flag(value, default):
+    return value if isinstance(value, bool) else default
+
+
+def sanitise(data):
+    """Build valid settings from untrusted data, keeping defaults for bad values."""
+    base = Settings()
+    if not isinstance(data, dict):
+        return base
+    name = data.get("name")
+    if isinstance(name, str) and name.strip():
+        base.name = name.strip()[:NAME_MAX]
+    base.scale = _number(data.get("scale"), "scale", base.scale, float)
+    base.speed = _number(data.get("speed"), "speed", base.speed, int)
+    base.break_minutes = _number(data.get("break_minutes"), "break_minutes", base.break_minutes, int)
+    base.bounciness = _number(data.get("bounciness"), "bounciness", base.bounciness, int)
+    base.gravity = _number(data.get("gravity"), "gravity", base.gravity, int)
+    if data.get("behaviour") in BEHAVIOURS:
+        base.behaviour = data["behaviour"]
+    base.sleepy = _flag(data.get("sleepy"), base.sleepy)
+    base.always_on_top = _flag(data.get("always_on_top"), base.always_on_top)
+    base.hide_fullscreen = _flag(data.get("hide_fullscreen"), base.hide_fullscreen)
+    base.speech_bubbles = _flag(data.get("speech_bubbles"), base.speech_bubbles)
+    base.autostart = _flag(data.get("autostart"), base.autostart)
+    return base
+
+
+def _write_json(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(temp, path)
+
+
+def load_settings(path=CONFIG_FILE):
+    try:
+        return sanitise(json.loads(Path(path).read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return Settings()
+
+
+def save_settings(settings, path=CONFIG_FILE):
+    _write_json(path, asdict(settings))
+
+
+def load_state(path=STATE_FILE):
+    """Return the saved {"screen": name, "offset": pixels} or None."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    screen, offset = data.get("screen"), data.get("offset")
+    if not isinstance(screen, str) or isinstance(offset, bool) or not isinstance(offset, int):
+        return None
+    return {"screen": screen, "offset": offset}
+
+
+def save_state(state, path=STATE_FILE):
+    _write_json(path, state)
