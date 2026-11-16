@@ -87,6 +87,15 @@ def slice_sheet():
     return frames
 
 
+def make_icon(frame):
+    """Write a 128 pixel icon for the desktop launcher from one frame."""
+    scale = 112 / max(frame.size)
+    art = frame.resize((round(frame.width * scale), round(frame.height * scale)), Image.NEAREST)
+    icon = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    icon.paste(art, ((128 - art.width) // 2, (128 - art.height) // 2), art)
+    icon.save(OUT.parent / "icon.png")
+
+
 def contact_sheet(frames, target):
     """Write a labelled, enlarged overview so frames can be picked by eye."""
     size = 150
@@ -104,5 +113,7 @@ def contact_sheet(frames, target):
 if __name__ == "__main__":
     result = slice_sheet()
     print(f"saved {len(result)} frames to {OUT}")
+    make_icon(result[(0, 0)])
+    print(f"saved icon to {OUT.parent / 'icon.png'}")
     if len(sys.argv) > 1:
         contact_sheet(result, Path(sys.argv[1]))
