@@ -1,4 +1,5 @@
-assets/
+assets/*
+!assets/pikachu-sheet.jpg
 .venv/
 __pycache__/
 settings.json
