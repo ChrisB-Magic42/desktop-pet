@@ -52,6 +52,13 @@ class SettingsDialog(QDialog):
         self.break_minutes.setSuffix(" min")
         self.break_minutes.setSpecialValueText("Off")
         self.autostart = QCheckBox("Start when I log in")
+        self.watch_harvest = QCheckBox("Pika warns me when no Harvest timer is running")
+        self.watch_github = QCheckBox("Pika tells me about new GitHub notifications")
+        self.github_participating = QCheckBox("GitHub: only when I am involved (mentions, reviews, replies)")
+        self.claude_jump = QCheckBox("Claude messages also teleport Pika to the main screen and make him hop")
+        self.check_minutes = QSpinBox()
+        self.check_minutes.setRange(*LIMITS["check_minutes"])
+        self.check_minutes.setSuffix(" min")
         self.bounciness = QSpinBox()
         self.bounciness.setRange(*LIMITS["bounciness"])
         self.bounciness.setSingleStep(5)
@@ -70,6 +77,11 @@ class SettingsDialog(QDialog):
         form.addRow("Bounciness when thrown", self.bounciness)
         form.addRow("Gravity when thrown", self.gravity)
         form.addRow("Break reminder every", self.break_minutes)
+        form.addRow("Check Harvest and GitHub every", self.check_minutes)
+        form.addRow(self.watch_harvest)
+        form.addRow(self.watch_github)
+        form.addRow(self.github_participating)
+        form.addRow(self.claude_jump)
         form.addRow(self.always_on_top)
         form.addRow(self.speech_bubbles)
         form.addRow(self.hide_fullscreen)
@@ -103,6 +115,11 @@ class SettingsDialog(QDialog):
         self.bounciness.setValue(settings.bounciness)
         self.gravity.setValue(settings.gravity)
         self.autostart.setChecked(settings.autostart)
+        self.watch_harvest.setChecked(settings.watch_harvest)
+        self.watch_github.setChecked(settings.watch_github)
+        self.github_participating.setChecked(settings.github_participating)
+        self.claude_jump.setChecked(settings.claude_jump)
+        self.check_minutes.setValue(settings.check_minutes)
 
     def current(self):
         return Settings(
@@ -118,6 +135,11 @@ class SettingsDialog(QDialog):
             bounciness=self.bounciness.value(),
             gravity=self.gravity.value(),
             autostart=self.autostart.isChecked(),
+            watch_harvest=self.watch_harvest.isChecked(),
+            watch_github=self.watch_github.isChecked(),
+            github_participating=self.github_participating.isChecked(),
+            claude_jump=self.claude_jump.isChecked(),
+            check_minutes=self.check_minutes.value(),
         )
 
     def handle_button(self, buttons, button):

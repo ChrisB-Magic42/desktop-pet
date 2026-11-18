@@ -3,17 +3,19 @@ import math
 import random
 import time
 from collections import deque
+from datetime import datetime
 
-from PyQt5.QtCore import QElapsedTimer, QPoint, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QCursor, QPainter
+from PyQt5.QtCore import QElapsedTimer, QPoint, Qt, QTimer, QUrl, pyqtSignal
+from PyQt5.QtGui import QCursor, QDesktopServices, QPainter
 from PyQt5.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from pet.autostart import set_autostart
-from pet.bubble import SpeechBubble
+from pet.bubble import LinkBubble, SpeechBubble
 from pet.config import load_state, save_settings, save_state
 from pet.fullscreen import active_window_is_fullscreen
 from pet.settings_dialog import SettingsDialog
 from pet.sprites import ANIMATIONS
+from pet.watcher import Watcher
 
 TICK_MS = 33
 GRAVITY = 2400
@@ -38,12 +40,15 @@ ACTIVITIES = {
     "sleep": (1.5, 10, 25),
 }
 
-# command from another program: (state, seconds)
+# command from another program: (state, seconds), used when claude_jump is off
 COMMAND_STATES = {
     "done": ("happy", 1.6),
     "fail": ("sad", 3.0),
     "attention": ("alert", 3.0),
 }
+
+# command from another program: the hop that matches its mood
+COMMAND_HOPS = {"done": "hop", "fail": "hop_sad", "attention": "hop_alert"}
 
 COMMAND_MESSAGES = {
     "done": "Pika pika! Claude answered!",
@@ -53,10 +58,20 @@ COMMAND_MESSAGES = {
 }
 BUBBLE_SECONDS = 4.0
 BREAK_BUBBLE_SECONDS = 8.0
+DEMO_NOTICE = "example/demo: Example pull request (mentioned you)"
+DEMO_URL = "https://github.com/notifications"
+HOP_SPEED = 700
+HOPS = 2
+HOP_STATES = ("hop", "hop_sad", "hop_alert")
+NOTICE_MAX_CHARS = 140
+HISTORY_SIZE = 10
+MENU_LABEL_CHARS = 60
+SNOOZE_MINUTES = 60
 
 
 class PetWindow(QWidget):
     visibility_changed = pyqtSignal(bool)
+    unread_changed = pyqtSignal(bool)
 
     def __init__(self, settings, sprites):
         super().__init__()
@@ -71,6 +86,10 @@ class PetWindow(QWidget):
         self.facing_right = True
         self.pos_x = self.pos_y = 0.0
         self.vx = self.vy = 0.0
+        self.hops_left = 0
+        self.history = deque(maxlen=HISTORY_SIZE)
+        self.pending = deque(maxlen=HISTORY_SIZE)
+        self.unread = 0
         self.drag_samples = deque(maxlen=8)
         self.rest_time = 0.0
         self.press_global = None
@@ -82,6 +101,7 @@ class PetWindow(QWidget):
 
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.bubble = SpeechBubble()
+        self.link_bubble = LinkBubble()
         self.apply_settings(settings)
         self.pos_x, self.pos_y = self.start_position()
         self.move(round(self.pos_x), round(self.pos_y))
@@ -104,6 +124,10 @@ class PetWindow(QWidget):
         self.fullscreen_timer.timeout.connect(self.check_fullscreen)
         if QApplication.platformName() == "xcb":
             self.fullscreen_timer.start(FULLSCREEN_CHECK_MS)
+
+        self.watcher = Watcher(settings, self)
+        self.watcher.popup.connect(self.receive_notice)
+        self.watcher.start()
 
     # Settings
 
@@ -132,6 +156,7 @@ class PetWindow(QWidget):
         old = self.settings
         self.apply_settings(settings)
         self.restart_break_timer()
+        self.watcher.apply_settings(settings)
         self.check_fullscreen()
         try:
             save_settings(settings)
@@ -218,6 +243,7 @@ class PetWindow(QWidget):
             self.setVisible(wanted)
         if not wanted:
             self.bubble.hide()
+            self.link_bubble.clear()
 
     def toggle_user_hidden(self):
         self.user_hidden = not self.user_hidden
@@ -229,6 +255,8 @@ class PetWindow(QWidget):
         if hide != self.auto_hidden:
             self.auto_hidden = hide
             self.refresh_visibility()
+            if not hide:
+                self.flush_pending()
 
     # Break reminder and commands from other programs
 
@@ -247,16 +275,92 @@ class PetWindow(QWidget):
         self.notify("Time for a break", "Stand up, stretch and rest your eyes.")
         self.say(COMMAND_MESSAGES["break"], BREAK_BUBBLE_SECONDS)
         if not self.user_hidden and self.state not in ("grabbed", "fall"):
+            self.teleport_to_main_screen()
             self.set_state("remind_walk", REMINDER_SECONDS, restart=True)
 
     def handle_command(self, name):
         if name == "break":
             self.start_reminder()
             return
-        self.say(COMMAND_MESSAGES[name], BUBBLE_SECONDS)
-        if self.state not in ("grabbed", "fall") + REMINDER_STATES:
+        if name == "demo":
+            self.receive_notice(DEMO_NOTICE, DEMO_URL)
+            return
+        if self.settings.claude_jump:
+            self.jump_to_main_screen(COMMAND_HOPS[name])
+        elif self.state not in ("grabbed", "fall") + REMINDER_STATES:
             state, seconds = COMMAND_STATES[name]
             self.set_state(state, seconds, restart=True)
+        self.say(COMMAND_MESSAGES[name], BUBBLE_SECONDS)
+
+    def receive_notice(self, text, url):
+        """A Harvest or GitHub message arrived. Keep it in the history, and show it unless a full-screen app is open."""
+        self.history.append((datetime.now(), text, url))
+        self.unread += 1
+        self.unread_changed.emit(True)
+        if self.auto_hidden:
+            self.pending.append((text, url))
+        else:
+            self.show_notice(text, url)
+
+    def flush_pending(self):
+        """Show the messages that arrived while a full-screen app was open."""
+        while self.pending:
+            self.show_notice(*self.pending.popleft())
+
+    def mark_read(self):
+        if self.unread:
+            self.unread = 0
+            self.unread_changed.emit(False)
+
+    def add_notice_actions(self, menu):
+        """Add the Harvest snooze item and the list of recent messages to a menu."""
+        checker = self.watcher.checker
+        if self.settings.watch_harvest and checker.harvest:
+            if checker.snoozed():
+                until = checker.snoozed_until.strftime("%H:%M")
+                menu.addAction(f"Harvest snoozed until {until} (click to cancel)", checker.cancel_snooze)
+            else:
+                menu.addAction(f"Snooze Harvest for {SNOOZE_MINUTES // 60} hour", lambda: checker.snooze(SNOOZE_MINUTES))
+        recent = menu.addMenu("Recent messages")
+        if not self.history:
+            recent.addAction("No messages yet").setEnabled(False)
+        for stamp, text, url in reversed(self.history):
+            short = text if len(text) <= MENU_LABEL_CHARS else text[: MENU_LABEL_CHARS - 3].rstrip() + "..."
+            action = recent.addAction(f"{stamp:%H:%M}  {short}")
+            action.setEnabled(bool(url))
+            action.triggered.connect(lambda _checked=False, link=url: QDesktopServices.openUrl(QUrl(link)))
+
+    def show_notice(self, text, url):
+        """The pet says a Harvest or GitHub notice in a clickable bubble and hops. A hidden pet uses the tray."""
+        if len(text) > NOTICE_MAX_CHARS:
+            text = text[: NOTICE_MAX_CHARS - 3].rstrip() + "..."
+        text = f"Pika! {text}"
+        if self.user_hidden:
+            self.notify(self.settings.name, text)
+            return
+        self.jump_to_main_screen()
+        self.link_bubble.pop_up(text, url)
+        self.follow_bubble()
+
+    def jump_to_main_screen(self, hop="hop"):
+        """Teleport to the main screen and hop, so a message is not missed. Not while held or running to a break."""
+        if self.user_hidden or self.state == "grabbed":
+            return
+        self.teleport_to_main_screen()
+        if self.state not in REMINDER_STATES:
+            self.start_hop(hop)
+
+    def teleport_to_main_screen(self):
+        """Move to the middle of the main screen at once, so the notice is not missed on another screen."""
+        main = QApplication.primaryScreen()
+        if self.current_screen() == main:
+            return
+        area = main.availableGeometry()
+        self.pos_x = area.center().x() - self.width() / 2
+        self.pos_y = float(area.bottom() + 1 - self.height())
+        self.vx = self.vy = 0.0
+        self.move(round(self.pos_x), round(self.pos_y))
+        self.save_position()
 
     # Speech bubble
 
@@ -267,12 +371,39 @@ class PetWindow(QWidget):
         self.follow_bubble()
 
     def follow_bubble(self):
-        """Keep the bubble just above the top of the drawn pet."""
-        if not self.bubble.isVisible():
+        """Keep the bubbles just above the top of the drawn pet, the link bubble first and the other above it."""
+        if not (self.bubble.isVisible() or self.link_bubble.isVisible()):
             return
         pixmap = self.sprites.pixmap(self.current_frame(), self.facing_right)
-        sprite_top = self.pos_y + self.height() - pixmap.height()
-        self.bubble.place(self.pos_x + self.width() / 2, sprite_top - 2, self.current_screen().availableGeometry())
+        anchor_x = self.pos_x + self.width() / 2
+        bottom = self.pos_y + self.height() - pixmap.height() - 2
+        area = self.current_screen().availableGeometry()
+        if self.link_bubble.isVisible():
+            self.link_bubble.place(anchor_x, bottom, area)
+            bottom = self.link_bubble.y() - 4
+        if self.bubble.isVisible():
+            self.bubble.place(anchor_x, bottom, area)
+
+    # Hop
+
+    def start_hop(self, kind="hop"):
+        self.vy = -HOP_SPEED
+        self.hops_left = HOPS
+        self.set_state(kind, restart=True)
+
+    def hop(self, dt):
+        """Jump up and down on the spot, HOPS times."""
+        self.vy += GRAVITY * self.settings.gravity / 100 * dt
+        self.pos_y += self.vy * dt
+        floor = self.floor_y()
+        if self.pos_y >= floor and self.vy > 0:
+            self.pos_y = floor
+            self.hops_left -= 1
+            if self.hops_left > 0:
+                self.vy = -HOP_SPEED
+            else:
+                self.vy = 0.0
+                self.set_state("idle", 1.0)
 
     # State machine
 
@@ -388,6 +519,8 @@ class PetWindow(QWidget):
             return
         if self.state == "fall":
             self.fall(dt)
+        elif self.state in HOP_STATES:
+            self.hop(dt)
         elif self.state in ONE_SHOTS:
             self.state_left -= dt
             if self.state_left <= 0:
@@ -399,7 +532,7 @@ class PetWindow(QWidget):
         else:
             self.wander(dt)
         self.clamp_x()
-        if self.state != "fall":
+        if self.state != "fall" and self.state not in HOP_STATES:
             self.pos_y = self.floor_y()
         self.move(round(self.pos_x), round(self.pos_y))
         self.advance_animation(dt)
@@ -475,7 +608,9 @@ class PetWindow(QWidget):
         menu = QMenu()
         menu.addAction(self.settings.name).setEnabled(False)
         menu.addSeparator()
+        self.mark_read()
         menu.addAction("Settings...", self.open_settings)
+        self.add_notice_actions(menu)
         menu.addAction("Hide pet", self.toggle_user_hidden)
         menu.addAction("Quit", QApplication.quit)
         menu.exec_(event.globalPos())

@@ -3,3 +3,5 @@ assets/*
 .venv/
 __pycache__/
 settings.json
+harvest.json
+seen.json

@@ -116,7 +116,12 @@ The default file looks like this:
   "bounciness": 70,
   "gravity": 100,
   "speech_bubbles": true,
-  "autostart": false
+  "autostart": false,
+  "watch_harvest": true,
+  "watch_github": true,
+  "github_participating": true,
+  "claude_jump": true,
+  "check_minutes": 2
 }
 ```
 
@@ -134,6 +139,11 @@ The default file looks like this:
 | `gravity` | whole number | `100` | 25 to 300 | Pull when thrown, in percent of normal. Low is floaty, high is heavy |
 | `speech_bubbles` | true or false | `true` | | Shows the speech bubble ("Claude answered!") |
 | `autostart` | true or false | `false` | | Start the pet when you log in. See the warning below |
+| `watch_harvest` | true or false | `true` | | Popup when no Harvest timer is running. Needs the credentials file, see below |
+| `watch_github` | true or false | `true` | | Popup for each new GitHub notification. Needs the `gh` command, logged in |
+| `github_participating` | true or false | `true` | | Only notifications where you are involved: mentions, assignments, review requests, replies |
+| `claude_jump` | true or false | `true` | | Claude messages (answered, failed, needs you) also teleport the pet to the main screen and make it hop. When off, they only change its face |
+| `check_minutes` | whole number | `2` | 1 to 60 | How often Harvest and GitHub are checked |
 
 Warning about `autostart`: it is only a record of your choice. The setting that really starts
 the pet at login is a file in `~/.config/autostart/`, and only the settings window creates or
@@ -145,6 +155,8 @@ removes it. Change this option in the settings window, not in the JSON file.
 | --- | --- | --- |
 | `~/.config/desktop-pet/state.json` | Which screen the pet is on and where, so it starts there next time | Yes. It then starts at a random place |
 | `~/.config/autostart/desktop-pet.desktop` | The "start when I log in" entry | Yes. Or untick the option in the settings window |
+| `~/.config/desktop-pet/seen.json` | The GitHub notifications already announced, so a restart does not repeat them | Yes. The pet then only records what is unread and shows nothing |
+| `~/.config/desktop-pet/harvest.json` | Your Harvest account ID and token, made by you. See the Harvest setup | Yes. The Harvest check then switches itself off |
 | `$XDG_RUNTIME_DIR/desktop-pet.sock` | A private socket for commands from other programs. Only your user can use it | Not needed. It is made again at each start |
 
 To keep the files somewhere else (for example for a test), set the `DESKTOP_PET_CONFIG_DIR`
@@ -168,10 +180,11 @@ The pet listens for short commands. Send one with `tools/pet_notify.py`:
 
 | Command | What the pet does | Bubble text |
 | --- | --- | --- |
-| `done` | Happy dance | Pika pika! Claude answered! |
-| `fail` | Sad face | Pika... something failed. |
-| `attention` | Surprised face | Pika? Claude needs you! |
-| `break` | Runs to the middle of the screen and uses Thunder Shock | Pika! Time for a break! |
+| `done` | Teleports to the main screen and hops happily | Pika pika! Claude answered! |
+| `fail` | Teleports to the main screen and hops with a sad face | Pika... something failed. |
+| `attention` | Teleports to the main screen and hops with a surprised face | Pika? Claude needs you! |
+| `break` | Teleports to the main screen, runs to the middle and uses Thunder Shock | Pika! Time for a break! |
+| `demo` | Hops and shows an example GitHub message. Click it to open your GitHub notifications | Pika! example/demo: Example pull request (mentioned you) |
 
 For example:
 
@@ -180,7 +193,7 @@ python3 ~/projects/desktop-pet/tools/pet_notify.py done
 ```
 
 It exits with 0 when the pet got the command, 1 when the pet is not running, and 2 when the
-word is not one of the four commands.
+word is not one of the five commands.
 
 ### Claude Code hooks
 
@@ -223,6 +236,80 @@ already have a `Stop` or `Notification` entry, add these next to it. Do not repl
   every reply, so the bubble appears often. Turn off "Show speech bubbles" in the settings if
   that is too much. The dance still happens.
 
+## Harvest and GitHub popups
+
+Every `check_minutes` minutes (default 2) the pet checks two things in the background. When
+there is something to tell you, the pet teleports to the middle of your main screen (the one
+set as primary in your display settings, if it was on another screen), hops twice and says it
+in a speech bubble above its head for 10 seconds. It stays on the main screen afterwards. Click the bubble to open its link. Messages wait in a queue if several
+arrive together.
+
+- Harvest: "Pika! No Harvest timer is running", linking to your Harvest time page. When it
+  repeats, and during which hours, is decided by `should_remind` in `pet/reminders.py`
+  (weekdays, 09:00 to 17:30, every 10 minutes).
+- Harvest, forgotten timer: if a timer has run for 8 hours or more, Pika says so, and repeats
+  every hour until you stop it. This works at any day and hour. The limits are in
+  `pet/reminders.py` too.
+- Snooze: right-click Pika (or use the tray menu) and choose "Snooze Harvest for 1 hour" when
+  you are at lunch or in a meeting. It silences both Harvest messages. The same item cancels it.
+- GitHub: one message for each new notification, linking to the issue or pull request. The
+  first check after the pet starts only records what is already unread, so old notifications
+  are not announced. If more than 3 arrive at once, you get one message that links to your
+  inbox.
+
+Messages are not lost. The list of unread GitHub notifications is saved, so ones that arrive
+while the pet is switched off are announced when it starts. Messages that arrive while a
+full-screen app is open wait, and are shown when the app closes. The last 10 messages are kept
+under "Recent messages" in the right-click menu and the tray menu, and you can click one to open
+its link. The tray icon shows a red dot while there are messages you have not looked at.
+
+These bubbles show even when "Show speech bubbles" is off, because that option is only for the
+Claude messages. If you hide the pet from the menu, the message comes as a tray notification
+instead, without a link.
+
+### GitHub setup
+
+Install the GitHub command line tool (`gh`) and log in with `gh auth login`. The login needs
+the `repo` or `notifications` permission. Nothing else is needed.
+
+### Harvest setup
+
+The pet cannot use your Claude Code connection to Harvest, so it needs its own key.
+
+1. Go to https://id.getharvest.com/developers and create a personal access token.
+2. Note the token and the account ID shown next to it.
+3. Make the file `~/.config/desktop-pet/harvest.json` with both values:
+
+```json
+{
+  "account_id": "123456",
+  "token": "your-token-here"
+}
+```
+
+4. Make the file private, because the token works like a password:
+
+```bash
+chmod 600 ~/.config/desktop-pet/harvest.json
+```
+
+Instead of putting the token in the file, you can keep it in the system keyring. Install the
+tool once, then store the token (it asks you to type it, so it never appears in a file). Leave
+`token` out of `harvest.json` and keep only the `account_id`:
+
+```bash
+sudo apt install libsecret-tools
+```
+
+```bash
+secret-tool store --label="desktop-pet Harvest token" application desktop-pet service harvest
+```
+
+The pet prints a warning at start if other users can read `harvest.json`.
+
+Without this file, the pet prints "Harvest check is off" when it starts, and the GitHub check
+still works. Never commit this file.
+
 ## Troubleshooting
 
 - Nothing appears: check that the pet is running (`pgrep -af main.py`) and that you are on
@@ -240,8 +327,9 @@ already have a `Stop` or `Notification` entry, add these next to it. Do not repl
 python3 -m unittest discover -s tests -t .
 ```
 
-The tests cover settings checks, saving and loading, and the command socket. They do not open
-any windows.
+The tests cover settings checks, saving and loading, the command socket, and the Harvest and
+GitHub checks (with fake answers, so they need no network). They do not show any windows. The
+pet window tests need the frames from `tools/slice_sheet.py`, and are skipped without them.
 
 ## Project layout
 
@@ -251,12 +339,17 @@ pet/pet_window.py       the pet window: movement, drawing, mouse, reminders
 pet/sprites.py          frames and animations
 pet/settings_dialog.py  the settings window
 pet/config.py           settings and position files, with checks
-pet/bubble.py           the speech bubble
-pet/tray.py             the tray icon
+pet/bubble.py           the speech bubble, and the clickable one for Harvest and GitHub messages
+pet/tray.py             the tray icon, its menu and the unread dot
 pet/commands.py         commands and socket client (no PyQt5 needed)
 pet/control.py          the socket the pet listens on
 pet/fullscreen.py       full-screen check using xprop
 pet/autostart.py        the start-at-login file
+pet/watcher.py          runs the checks on a background thread every few minutes
+pet/checks.py           one round of checks (Harvest timer, GitHub notifications)
+pet/harvest.py          asks Harvest if a timer is running
+pet/github.py           reads GitHub notifications through gh
+pet/reminders.py        the rules for when to say that no timer is running, or one ran too long
 tools/slice_sheet.py    cuts the sprite sheet into frames and makes the icon
 tools/pet_notify.py     sends commands to the running pet
 tests/                  unit tests
