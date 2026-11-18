@@ -1,4 +1,4 @@
-"""Send a command to the running pet: done, fail, attention or break."""
+"""Send a command to the running pet: done, fail, attention, break or demo."""
 import sys
 from pathlib import Path
 

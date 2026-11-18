@@ -3,7 +3,7 @@ import os
 import socket
 from pathlib import Path
 
-COMMANDS = ("done", "fail", "attention", "break")
+COMMANDS = ("done", "fail", "attention", "break", "demo")
 
 
 def socket_path():

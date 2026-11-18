@@ -56,7 +56,7 @@ class CommandsTest(unittest.TestCase):
             self.assertEqual(listener.received, b"")
 
     def test_known_commands(self):
-        self.assertEqual(set(COMMANDS), {"done", "fail", "attention", "break"})
+        self.assertEqual(set(COMMANDS), {"done", "fail", "attention", "break", "demo"})
 
 
 if __name__ == "__main__":
