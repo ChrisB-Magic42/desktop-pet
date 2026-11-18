@@ -7,6 +7,7 @@ from pathlib import Path
 CONFIG_DIR = Path(os.environ.get("DESKTOP_PET_CONFIG_DIR") or Path.home() / ".config" / "desktop-pet")
 CONFIG_FILE = CONFIG_DIR / "settings.json"
 STATE_FILE = CONFIG_DIR / "state.json"
+SEEN_FILE = CONFIG_DIR / "seen.json"
 
 BEHAVIOURS = ("wander", "follow", "stay")
 NAME_MAX = 20
@@ -16,6 +17,7 @@ LIMITS = {
     "break_minutes": (0, 240),
     "bounciness": (0, 95),
     "gravity": (25, 300),
+    "check_minutes": (1, 60),
 }
 
 
@@ -33,6 +35,11 @@ class Settings:
     gravity: int = 100
     speech_bubbles: bool = True
     autostart: bool = False
+    watch_harvest: bool = True
+    watch_github: bool = True
+    github_participating: bool = True
+    claude_jump: bool = True
+    check_minutes: int = 2
 
 
 def _number(value, key, default, cast):
@@ -59,6 +66,7 @@ def sanitise(data):
     base.break_minutes = _number(data.get("break_minutes"), "break_minutes", base.break_minutes, int)
     base.bounciness = _number(data.get("bounciness"), "bounciness", base.bounciness, int)
     base.gravity = _number(data.get("gravity"), "gravity", base.gravity, int)
+    base.check_minutes = _number(data.get("check_minutes"), "check_minutes", base.check_minutes, int)
     if data.get("behaviour") in BEHAVIOURS:
         base.behaviour = data["behaviour"]
     base.sleepy = _flag(data.get("sleepy"), base.sleepy)
@@ -66,6 +74,10 @@ def sanitise(data):
     base.hide_fullscreen = _flag(data.get("hide_fullscreen"), base.hide_fullscreen)
     base.speech_bubbles = _flag(data.get("speech_bubbles"), base.speech_bubbles)
     base.autostart = _flag(data.get("autostart"), base.autostart)
+    base.watch_harvest = _flag(data.get("watch_harvest"), base.watch_harvest)
+    base.watch_github = _flag(data.get("watch_github"), base.watch_github)
+    base.github_participating = _flag(data.get("github_participating"), base.github_participating)
+    base.claude_jump = _flag(data.get("claude_jump"), base.claude_jump)
     return base
 
 
@@ -104,3 +116,18 @@ def load_state(path=STATE_FILE):
 
 def save_state(state, path=STATE_FILE):
     _write_json(path, state)
+
+
+def load_seen(path=SEEN_FILE):
+    """Return the saved set of GitHub notification keys, or None when there is no usable file."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, list) or not all(isinstance(key, str) for key in data):
+        return None
+    return set(data)
+
+
+def save_seen(keys, path=SEEN_FILE):
+    _write_json(path, sorted(keys))
