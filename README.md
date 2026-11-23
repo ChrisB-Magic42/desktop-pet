@@ -15,6 +15,7 @@ Built and tested on Ubuntu with GNOME on X11, using Python 3 and PyQt5.
 - Pillow and numpy, used once to cut the sprite sheet into frames.
 - `xprop` (package `x11-utils`), optional. Without it the pet cannot hide itself for
   full-screen apps.
+- `xinput` (package `xinput`), optional. Without it the pet cannot hide itself for screenshots.
 
 On Ubuntu:
 
@@ -121,7 +122,10 @@ The default file looks like this:
   "watch_github": true,
   "github_participating": true,
   "claude_jump": true,
-  "check_minutes": 2
+  "check_minutes": 2,
+  "hide_for_screenshots": true,
+  "screenshot_keys": "Print,F9",
+  "screenshot_hide_seconds": 10
 }
 ```
 
@@ -144,6 +148,9 @@ The default file looks like this:
 | `github_participating` | true or false | `true` | | Only notifications where you are involved: mentions, assignments, review requests, replies |
 | `claude_jump` | true or false | `true` | | Claude messages (answered, failed, needs you) also teleport the pet to the main screen and make it hop. When off, they only change its face |
 | `check_minutes` | whole number | `2` | 1 to 60 | How often Harvest and GitHub are checked |
+| `hide_for_screenshots` | true or false | `true` | | Hide the pet when a screenshot key is pressed. Needs `xinput` |
+| `screenshot_keys` | text | `"Print,F9"` | up to 10 key names, separated by commas | The keys that start a screenshot. Any press of them counts, with or without Shift, Alt or Ctrl |
+| `screenshot_hide_seconds` | whole number | `10` | 1 to 60 | How long the pet stays hidden after the key press |
 
 Warning about `autostart`: it is only a record of your choice. The setting that really starts
 the pet at login is a file in `~/.config/autostart/`, and only the settings window creates or
@@ -310,6 +317,27 @@ The pet prints a warning at start if other users can read `harvest.json`.
 Without this file, the pet prints "Harvest check is off" when it starts, and the GitHub check
 still works. Never commit this file.
 
+## Hiding while you take screenshots
+
+Pika hides when you press a screenshot key, so he is not in the picture. The default keys are
+Print and F9. That covers the GNOME screenshot tool (Print, F9, Alt+Print) and a Flameshot
+shortcut such as Shift+F9, because any press of the key counts, with or without Shift, Alt or
+Ctrl. He comes back after `screenshot_hide_seconds` (10 by default). A message that arrives
+meanwhile waits, and is shown when he returns.
+
+How it works: the pet watches key presses with `xinput`, a tool that reports keyboard events.
+It hides within about 10 milliseconds of the key press. Screenshot tools take the picture a
+little after the key press, so this is fast but not guaranteed.
+
+Limits:
+
+- Only the keys in `screenshot_keys` count. If you use another shortcut, add its key name, for
+  example `"Print,F9,F10"`. The names are the ones the `xev` tool shows.
+- Any other use of those keys also hides him. F9 in another program does the same.
+- Screen recordings are not covered, because the pet cannot know when they end.
+- It works on X11 only, and needs `xinput`. Without it the pet prints a message at start and
+  carries on.
+
 ## Troubleshooting
 
 - Nothing appears: check that the pet is running (`pgrep -af main.py`) and that you are on
@@ -349,6 +377,7 @@ pet/watcher.py          runs the checks on a background thread every few minutes
 pet/checks.py           one round of checks (Harvest timer, GitHub notifications)
 pet/harvest.py          asks Harvest if a timer is running
 pet/github.py           reads GitHub notifications through gh
+pet/screenshot.py       watches the screenshot keys so the pet can hide
 pet/reminders.py        the rules for when to say that no timer is running, or one ran too long
 tools/slice_sheet.py    cuts the sprite sheet into frames and makes the icon
 tools/pet_notify.py     sends commands to the running pet
