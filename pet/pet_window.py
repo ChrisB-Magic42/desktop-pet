@@ -11,8 +11,9 @@ from PyQt5.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from pet.autostart import set_autostart
 from pet.bubble import LinkBubble, SpeechBubble
-from pet.config import load_state, save_settings, save_state
+from pet.config import key_names, load_state, save_settings, save_state
 from pet.fullscreen import active_window_is_fullscreen
+from pet.screenshot import ScreenshotKeys
 from pet.settings_dialog import SettingsDialog
 from pet.sprites import ANIMATIONS
 from pet.watcher import Watcher
@@ -98,6 +99,7 @@ class PetWindow(QWidget):
         self.window_flags = None
         self.user_hidden = False
         self.auto_hidden = False
+        self.shot_hidden = False
 
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.bubble = SpeechBubble()
@@ -124,6 +126,14 @@ class PetWindow(QWidget):
         self.fullscreen_timer.timeout.connect(self.check_fullscreen)
         if QApplication.platformName() == "xcb":
             self.fullscreen_timer.start(FULLSCREEN_CHECK_MS)
+
+        self.shot_timer = QTimer(self)
+        self.shot_timer.setSingleShot(True)
+        self.shot_timer.timeout.connect(self.end_screenshot_hide)
+        self.shots = ScreenshotKeys(self)
+        self.shots.pressed.connect(self.begin_screenshot_hide)
+        self.restart_screenshot_watch()
+        QApplication.instance().aboutToQuit.connect(self.shots.stop)
 
         self.watcher = Watcher(settings, self)
         self.watcher.popup.connect(self.receive_notice)
@@ -157,6 +167,7 @@ class PetWindow(QWidget):
         self.apply_settings(settings)
         self.restart_break_timer()
         self.watcher.apply_settings(settings)
+        self.restart_screenshot_watch()
         self.check_fullscreen()
         try:
             save_settings(settings)
@@ -238,15 +249,21 @@ class PetWindow(QWidget):
     # Visibility
 
     def refresh_visibility(self):
-        wanted = not (self.user_hidden or self.auto_hidden)
+        wanted = not (self.user_hidden or self.auto_hidden or self.shot_hidden)
         if wanted != self.isVisible():
             self.setVisible(wanted)
         if not wanted:
             self.bubble.hide()
-            self.link_bubble.clear()
+            self.link_bubble.suspend()
+
+    def suppressed(self):
+        """True while a full-screen app is open or a screenshot is being taken."""
+        return self.auto_hidden or self.shot_hidden
 
     def toggle_user_hidden(self):
         self.user_hidden = not self.user_hidden
+        if self.user_hidden:
+            self.link_bubble.clear()
         self.refresh_visibility()
         self.visibility_changed.emit(self.user_hidden)
 
@@ -256,7 +273,35 @@ class PetWindow(QWidget):
             self.auto_hidden = hide
             self.refresh_visibility()
             if not hide:
-                self.flush_pending()
+                self.resume_messages()
+
+    # Screenshots
+
+    def restart_screenshot_watch(self):
+        """Watch the screenshot keys again, or stop watching when hiding is switched off."""
+        self.shots.stop()
+        if self.settings.hide_for_screenshots and QApplication.platformName() == "xcb":
+            self.shots.start(key_names(self.settings.screenshot_keys))
+
+    def begin_screenshot_hide(self):
+        """A screenshot key went down. Hide at once, because the picture is taken a few milliseconds later."""
+        if not self.settings.hide_for_screenshots:
+            return
+        self.shot_hidden = True
+        self.refresh_visibility()
+        self.shot_timer.start(self.settings.screenshot_hide_seconds * 1000)
+
+    def end_screenshot_hide(self):
+        self.shot_hidden = False
+        self.refresh_visibility()
+        self.resume_messages()
+
+    def resume_messages(self):
+        """Show the messages that waited while the pet was hidden by a full-screen app or a screenshot."""
+        if self.suppressed() or self.user_hidden:
+            return
+        self.flush_pending()
+        self.link_bubble.resume()
 
     # Break reminder and commands from other programs
 
@@ -270,7 +315,7 @@ class PetWindow(QWidget):
             self.tray.showMessage(title, text, QSystemTrayIcon.Information, 10000)
 
     def start_reminder(self):
-        if self.auto_hidden:
+        if self.suppressed():
             return
         self.notify("Time for a break", "Stand up, stretch and rest your eyes.")
         self.say(COMMAND_MESSAGES["break"], BREAK_BUBBLE_SECONDS)
@@ -297,7 +342,7 @@ class PetWindow(QWidget):
         self.history.append((datetime.now(), text, url))
         self.unread += 1
         self.unread_changed.emit(True)
-        if self.auto_hidden:
+        if self.suppressed():
             self.pending.append((text, url))
         else:
             self.show_notice(text, url)
@@ -344,7 +389,7 @@ class PetWindow(QWidget):
 
     def jump_to_main_screen(self, hop="hop"):
         """Teleport to the main screen and hop, so a message is not missed. Not while held or running to a break."""
-        if self.user_hidden or self.state == "grabbed":
+        if self.user_hidden or self.suppressed() or self.state == "grabbed":
             return
         self.teleport_to_main_screen()
         if self.state not in REMINDER_STATES:
@@ -365,7 +410,7 @@ class PetWindow(QWidget):
     # Speech bubble
 
     def say(self, text, seconds):
-        if not self.settings.speech_bubbles or self.user_hidden or self.auto_hidden:
+        if not self.settings.speech_bubbles or self.user_hidden or self.suppressed():
             return
         self.bubble.say(text, seconds)
         self.follow_bubble()

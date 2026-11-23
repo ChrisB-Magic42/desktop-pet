@@ -191,6 +191,64 @@ class NoticeTest(unittest.TestCase):
         self.pet.handle_command("done")
         self.assertEqual(self.pet.pos_x, -5000.0)
 
+    def test_screenshot_key_hides_the_pet_and_brings_it_back(self):
+        self.pet.show()
+        self.assertIsNone(self.pet.shots.xinput)
+        self.pet.shots.pressed.emit()
+        self.assertFalse(self.pet.isVisible())
+        self.assertTrue(self.pet.shot_timer.isActive())
+        self.pet.end_screenshot_hide()
+        self.assertTrue(self.pet.isVisible())
+
+    def test_screenshot_hides_the_bubble_but_keeps_its_message(self):
+        self.pet.show()
+        self.pet.show_notice("hello", "https://github.com/a")
+        self.assertTrue(self.pet.link_bubble.isVisible())
+        self.pet.begin_screenshot_hide()
+        self.assertFalse(self.pet.link_bubble.isVisible())
+        self.pet.end_screenshot_hide()
+        self.assertTrue(self.pet.link_bubble.isVisible())
+        self.assertEqual(self.pet.link_bubble.text, "Pika! hello")
+
+    def test_message_that_arrives_during_a_screenshot_waits(self):
+        self.pet.show()
+        self.pet.begin_screenshot_hide()
+        self.pet.receive_notice("later", "https://github.com/a")
+        self.assertFalse(self.pet.link_bubble.isVisible())
+        self.assertEqual(len(self.pet.pending), 1)
+        self.assertEqual(len(self.pet.history), 1)
+        self.pet.end_screenshot_hide()
+        self.assertEqual(self.pet.link_bubble.text, "Pika! later")
+        self.assertEqual(len(self.pet.pending), 0)
+
+    def test_pet_does_not_teleport_or_speak_during_a_screenshot(self):
+        self.pet.show()
+        self.on_other_screen()
+        self.pet.begin_screenshot_hide()
+        self.pet.handle_command("done")
+        self.assertEqual(self.pet.pos_x, -5000.0)
+        self.assertFalse(self.pet.bubble.isVisible())
+
+    def test_screenshot_hiding_can_be_switched_off(self):
+        self.pet.show()
+        self.pet.settings = Settings(watch_harvest=False, watch_github=False, hide_for_screenshots=False)
+        self.pet.begin_screenshot_hide()
+        self.assertTrue(self.pet.isVisible())
+
+    def test_pet_the_user_hid_stays_hidden_after_a_screenshot(self):
+        self.pet.show()
+        self.pet.toggle_user_hidden()
+        self.pet.begin_screenshot_hide()
+        self.pet.end_screenshot_hide()
+        self.assertFalse(self.pet.isVisible())
+
+    def test_repeated_key_presses_keep_it_hidden_longer(self):
+        self.pet.show()
+        self.pet.begin_screenshot_hide()
+        self.pet.begin_screenshot_hide()
+        self.assertFalse(self.pet.isVisible())
+        self.assertTrue(self.pet.shot_timer.isActive())
+
     def test_hop_ends_back_on_the_floor(self):
         self.pet.pos_y = self.pet.floor_y()
         self.pet.start_hop()
