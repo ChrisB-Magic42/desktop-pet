@@ -103,6 +103,30 @@ class StateTest(unittest.TestCase):
                 self.assertIsNone(load_state(path), bad)
 
 
+class ScreenshotSettingsTest(unittest.TestCase):
+    def test_defaults(self):
+        result = sanitise({})
+        self.assertTrue(result.hide_for_screenshots)
+        self.assertEqual(result.screenshot_keys, "Print,F9")
+        self.assertEqual(result.screenshot_hide_seconds, 10)
+
+    def test_keys_are_cleaned_up(self):
+        self.assertEqual(sanitise({"screenshot_keys": " Print , Shift_L,,bad key!, F9 "}).screenshot_keys, "Print,Shift_L,F9")
+
+    def test_unusable_keys_keep_the_default(self):
+        for bad in ("", "  ", ",,", "!!", 5, None, ["Print"]):
+            self.assertEqual(sanitise({"screenshot_keys": bad}).screenshot_keys, "Print,F9", bad)
+
+    def test_only_ten_keys_are_kept(self):
+        keys = ",".join(f"F{n}" for n in range(1, 16))
+        self.assertEqual(len(sanitise({"screenshot_keys": keys}).screenshot_keys.split(",")), 10)
+
+    def test_hide_time_is_clamped_and_flag_accepts_false(self):
+        self.assertEqual(sanitise({"screenshot_hide_seconds": 0}).screenshot_hide_seconds, 1)
+        self.assertEqual(sanitise({"screenshot_hide_seconds": 500}).screenshot_hide_seconds, 60)
+        self.assertFalse(sanitise({"hide_for_screenshots": False}).hide_for_screenshots)
+
+
 class SeenTest(unittest.TestCase):
     def test_round_trip(self):
         with tempfile.TemporaryDirectory() as folder:

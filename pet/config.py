@@ -1,6 +1,7 @@
 """Pet settings and saved position: defaults, validation and the JSON files."""
 import json
 import os
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -18,7 +19,11 @@ LIMITS = {
     "bounciness": (0, 95),
     "gravity": (25, 300),
     "check_minutes": (1, 60),
+    "screenshot_hide_seconds": (1, 60),
 }
+KEY_NAME = re.compile(r"[A-Za-z0-9_]{1,20}")
+MAX_KEYS = 10
+DEFAULT_SCREENSHOT_KEYS = "Print,F9"
 
 
 @dataclass
@@ -40,6 +45,17 @@ class Settings:
     github_participating: bool = True
     claude_jump: bool = True
     check_minutes: int = 2
+    hide_for_screenshots: bool = True
+    screenshot_keys: str = DEFAULT_SCREENSHOT_KEYS
+    screenshot_hide_seconds: int = 10
+
+
+def key_names(text):
+    """The valid key names in a comma separated text such as "Print, F9"."""
+    if not isinstance(text, str):
+        return []
+    names = [part.strip() for part in text.split(",")]
+    return [name for name in names if KEY_NAME.fullmatch(name)][:MAX_KEYS]
 
 
 def _number(value, key, default, cast):
@@ -78,6 +94,13 @@ def sanitise(data):
     base.watch_github = _flag(data.get("watch_github"), base.watch_github)
     base.github_participating = _flag(data.get("github_participating"), base.github_participating)
     base.claude_jump = _flag(data.get("claude_jump"), base.claude_jump)
+    base.hide_for_screenshots = _flag(data.get("hide_for_screenshots"), base.hide_for_screenshots)
+    base.screenshot_hide_seconds = _number(
+        data.get("screenshot_hide_seconds"), "screenshot_hide_seconds", base.screenshot_hide_seconds, int
+    )
+    names = key_names(data.get("screenshot_keys"))
+    if names:
+        base.screenshot_keys = ",".join(names)
     return base
 
 

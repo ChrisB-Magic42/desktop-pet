@@ -127,6 +127,17 @@ class LinkBubble(SpeechBubble):
         self.hide_timer.stop()
         self.hide()
 
+    def suspend(self):
+        """Hide the bubble but keep its message, so resume can show it again."""
+        if self.isVisible() and self.text:
+            self.queue.appendleft((self.text, self.url))
+        self.hide_timer.stop()
+        self.hide()
+
+    def resume(self):
+        if self.queue and not self.isVisible():
+            self.show_next()
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.url:
             QDesktopServices.openUrl(QUrl(self.url))
