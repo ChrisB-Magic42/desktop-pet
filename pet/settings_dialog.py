@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
-from pet.config import BEHAVIOURS, LIMITS, NAME_MAX, Settings
+from pet.config import BEHAVIOURS, LIMITS, NAME_MAX, Settings, key_names
 
 BEHAVIOUR_LABELS = {
     "wander": "Wander around",
@@ -56,6 +56,12 @@ class SettingsDialog(QDialog):
         self.watch_github = QCheckBox("Pika tells me about new GitHub notifications")
         self.github_participating = QCheckBox("GitHub: only when I am involved (mentions, reviews, replies)")
         self.claude_jump = QCheckBox("Claude messages also teleport Pika to the main screen and make him hop")
+        self.hide_for_screenshots = QCheckBox("Hide Pika while I take a screenshot")
+        self.screenshot_keys = QLineEdit()
+        self.screenshot_keys.setPlaceholderText("Print,F9")
+        self.screenshot_hide_seconds = QSpinBox()
+        self.screenshot_hide_seconds.setRange(*LIMITS["screenshot_hide_seconds"])
+        self.screenshot_hide_seconds.setSuffix(" s")
         self.check_minutes = QSpinBox()
         self.check_minutes.setRange(*LIMITS["check_minutes"])
         self.check_minutes.setSuffix(" min")
@@ -82,6 +88,9 @@ class SettingsDialog(QDialog):
         form.addRow(self.watch_github)
         form.addRow(self.github_participating)
         form.addRow(self.claude_jump)
+        form.addRow(self.hide_for_screenshots)
+        form.addRow("Screenshot keys", self.screenshot_keys)
+        form.addRow("Hide for", self.screenshot_hide_seconds)
         form.addRow(self.always_on_top)
         form.addRow(self.speech_bubbles)
         form.addRow(self.hide_fullscreen)
@@ -119,6 +128,9 @@ class SettingsDialog(QDialog):
         self.watch_github.setChecked(settings.watch_github)
         self.github_participating.setChecked(settings.github_participating)
         self.claude_jump.setChecked(settings.claude_jump)
+        self.hide_for_screenshots.setChecked(settings.hide_for_screenshots)
+        self.screenshot_keys.setText(settings.screenshot_keys)
+        self.screenshot_hide_seconds.setValue(settings.screenshot_hide_seconds)
         self.check_minutes.setValue(settings.check_minutes)
 
     def current(self):
@@ -139,6 +151,9 @@ class SettingsDialog(QDialog):
             watch_github=self.watch_github.isChecked(),
             github_participating=self.github_participating.isChecked(),
             claude_jump=self.claude_jump.isChecked(),
+            hide_for_screenshots=self.hide_for_screenshots.isChecked(),
+            screenshot_keys=",".join(key_names(self.screenshot_keys.text())) or Settings().screenshot_keys,
+            screenshot_hide_seconds=self.screenshot_hide_seconds.value(),
             check_minutes=self.check_minutes.value(),
         )
 
